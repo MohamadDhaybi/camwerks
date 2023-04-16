@@ -8,22 +8,35 @@ SerialCommand SCmd;   // The demo SerialCommand object
 boolean DEBUG = false;
 
 // Variables for Callipper Reading
-int i;
-int sign;
-long value;
+//int i;
+//int sign;
+//long value;
 float measure;
-int clockpin = 8;
-int datapin = 9;
+//int clockpin = 9;
+//int datapin = 8;
 unsigned long tempmicros;
 unsigned long revMillis;
 
+int req = 10; //mic REQ line goes to pin 5 through q1 (arduino high pulls request line low)
+int dat = 8; //mic Data line goes to pin 2
+int clk = 9; //mic Clock line goes to pin 3
+int i = 0;
+int j = 0;
+int k = 0;
+int signCh = 8;
+int sign = 0;
+int decimal;
+float dpp;
+int units;
+
+byte mydata[14];
+String value_str;
+long value_int; //was an int, could not measure over 32mm
+float value;
+
 //Variables for Stepper Motor control
-int ENA=2;//connected to Arduino's port 2
-int IN1=3;//connected to Arduino's port 3
-int IN2=4;//connected to Arduino's port 4
-int ENB=5;//connected to Arduino's port 5
-int IN3=6;//connected to Arduino's port 6
-int IN4=7;//connected to Arduino's port 7
+int dirPin=6;//connected to Arduino's port 6
+int stepPin=7;//connected to Arduino's port 7
 
 // Variables for measuring process
 int nbCycles = 1;
@@ -35,18 +48,18 @@ int stepDirection = -1; // 1 : clockwise / -1 : counter clockwise
 void setup() {
   //Calliper Reading
   Serial.begin(9600);
-  pinMode(clockpin, INPUT);
-  pinMode(datapin, INPUT);
+  
+  pinMode(req, OUTPUT);
+  pinMode(clk, INPUT_PULLUP);
+  pinMode(dat, INPUT_PULLUP);
+  digitalWrite(req,LOW); // set request at high
 
   //Stepper Motor
-  pinMode(ENA,OUTPUT);
-  pinMode(ENB,OUTPUT);
-  pinMode(IN1,OUTPUT);
-  pinMode(IN2,OUTPUT); 
-  pinMode(IN3,OUTPUT);
-  pinMode(IN4,OUTPUT);
-  digitalWrite(ENA,HIGH);//enable motorA
-  digitalWrite(ENB,HIGH);//enable motorB
+  pinMode(dirPin,OUTPUT);
+  pinMode(stepPin,OUTPUT);
+
+  digitalWrite(dirPin,HIGH);//enable motorA
+  digitalWrite(stepPin,LOW);//enable motorB
 
   // Setup callbacks for SerialCommand commands 
   SCmd.addCommand("PING",ping);
@@ -71,73 +84,55 @@ void getMeasure(){
       }
 
       //Serial.print("MEASURE ");
+      //measure = -12.10;
+      //measure = value;
       Serial.println(measure,2);
 }
 
 void doStep() {
-  currentStep = currentStep + stepDirection;
-  if(currentStep > 4) currentStep = 1;
-  if(currentStep < 1) currentStep = 4;
-
-  switch (currentStep) {
-  case 1:
-    digitalWrite(IN1,LOW);
-    digitalWrite(IN2,HIGH);
-    digitalWrite(IN3,HIGH);
-    digitalWrite(IN4,LOW);
-    break;
-  case 2:
-    digitalWrite(IN1,LOW);
-    digitalWrite(IN2,HIGH);
-    digitalWrite(IN3,LOW);
-    digitalWrite(IN4,HIGH);
-    break;
-  case 3:
-    digitalWrite(IN1,HIGH);
-    digitalWrite(IN2,LOW);
-    digitalWrite(IN3,LOW);
-    digitalWrite(IN4,HIGH);
-    break;
-  case 4:
-    digitalWrite(IN1,HIGH);
-    digitalWrite(IN2,LOW);
-    digitalWrite(IN3,HIGH);
-    digitalWrite(IN4,LOW);
-  }  
+  digitalWrite(dirPin,stepDirection);
+  digitalWrite(stepPin,HIGH);
+  delayMicroseconds(500);
+  digitalWrite(stepPin,LOW);
+  
   Serial.println("STEP_ACK"); 
 }
 
 void readCalliper() {
-  while (digitalRead(clockpin)==HIGH) { 
-  } //if clock is LOW wait until it turns to HIGH
-  tempmicros=micros();
-  while (digitalRead(clockpin)==LOW) { 
-  } //wait for the end of the HIGH pulse
+  digitalWrite(req, HIGH); // generate set request
+for( i = 0; i < 13; i++ ) {
+k = 0;
+for (j = 0; j < 4; j++) {
+while( digitalRead(clk) == LOW) {
+} // hold until clock is high
+while( digitalRead(clk) == HIGH) {
+} // hold until clock is low
+bitWrite(k, j, (digitalRead(dat) & 0x1));
+}
 
-  if ((micros()-tempmicros)>500) { //if the HIGH pulse was longer than 500 micros we are at the start of a new bit sequence
-    decodeCalliper(); //decode the bit sequence
-  }
+mydata[i] = k;
+
+}
+sign = mydata[4];
+value_str = String(mydata[5]) + String(mydata[6]) + String(mydata[7]) + String(mydata[8] + String(mydata[9] + String(mydata[10]))) ;
+decimal = mydata[11];
+units = mydata[12];
+
+value_int = value_str.toInt();
+if (decimal == 0) dpp = 1.00;
+if (decimal == 1) dpp = 10.00;
+if (decimal == 2) dpp = 100.00;
+if (decimal == 3) dpp = 1000.00;
+if (decimal == 4) dpp = 10000.00;
+if (decimal == 5) dpp = 100000.00;
+
+value = value_int / dpp;
+measure = sign==0 ? value:-value;
+digitalWrite(req,LOW);
 }
 
 void decodeCalliper() {
-  sign=1;
-  value=0;
-
-  for (i=0;i<23;i++) {
-    while (digitalRead(clockpin)==HIGH) {  
-    } //wait until clock returns to HIGH- the first bit is not needed
-    while (digitalRead(clockpin)==LOW) { 
-    } //wait until clock returns to LOW
-    if (digitalRead(datapin)==LOW) {
-      if (i<20) {
-        value|= 1<<i;
-      }
-      if (i==20) {
-        sign=-1;
-      }
-    }
-  }
-  measure=(value*sign)/100.00;
+  measure=value;
 }
 
 void ping()
@@ -149,6 +144,11 @@ void setDirection() {
   String arg = SCmd.next();
   if (arg != NULL) {
     stepDirection = arg.toInt();
+  //if(stepDirection < 0)
+  //  stepDirection = 1;
+  //else
+  //  stepDirection = 0;
+  stepDirection = stepDirection < 0 ? 1:0;
   } 
   Serial.println("DIR_ACK"); 
 }
@@ -159,4 +159,3 @@ void unrecognized()
 {
   Serial.println("What?"); 
 }
-
