@@ -39,6 +39,10 @@ public class Cam {
 
 	public void setValue(int idx, double value) {
 		values[idx] = value;
+		if(idx == 0)
+		{
+			System.out.println("Cam.SetValue " + value);
+		}
 	}
 
 	public int getCamNumber() {
@@ -79,6 +83,10 @@ public class Cam {
 		}
 		//second loop to actually reset the min...
 		for (int i=0 ; i<values.length ; i++){
+			if(i == 0)
+			{
+				System.out.println("Cam.normalizeValues " + Toolbox.round(values[i] - min, 2));
+			}
 			values[i] = Toolbox.round(values[i] - min, 2);
 		}
 		return min;

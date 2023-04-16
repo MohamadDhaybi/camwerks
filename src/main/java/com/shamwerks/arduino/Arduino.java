@@ -1,10 +1,12 @@
 package com.shamwerks.arduino;
 
-import gnu.io.CommPortIdentifier;
+/*import gnu.io.CommPortIdentifier;
 import gnu.io.SerialPort;
 import gnu.io.SerialPortEvent;
 import gnu.io.SerialPortEventListener;
-import gnu.io.UnsupportedCommOperationException;
+import gnu.io.UnsupportedCommOperationException;*/
+
+import com.fazecast.jSerialComm.*;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -17,7 +19,10 @@ import java.util.concurrent.locks.ReentrantLock;
 import com.shamwerks.camwerks.CamWerks;
 
 
-public class Arduino implements SerialPortEventListener {
+public class Arduino implements SerialPortDataListener {
+    @Override
+    public int getListeningEvents() { return SerialPort.LISTENING_EVENT_DATA_AVAILABLE; }
+    
     SerialPort serialPort = null;
     
     private boolean connected = false;
@@ -44,52 +49,39 @@ public class Arduino implements SerialPortEventListener {
 
     public boolean initialize() {
         try {
-            CommPortIdentifier portId = null;
-            Enumeration<?> portEnum = CommPortIdentifier.getPortIdentifiers();
-            
-            // Enumerate system ports and try connecting to Arduino over each
-            //
-            System.out.println( "Trying:");
-            while (portId == null && portEnum.hasMoreElements()) {
-                // Iterate through your host computer's serial port IDs
-                //
-                CommPortIdentifier currPortId = (CommPortIdentifier) portEnum.nextElement();
-                System.out.println( "   port" + currPortId.getName() );
-                
-                for (String portName : CamWerks.getInstance().getConfig().getComPorts() ) {
-                    if ( currPortId.getName().equals(portName) 
-                      || currPortId.getName().startsWith(portName)) {
-                        // Try to connect to the Arduino on this port / Open serial port
-                        serialPort = (SerialPort)currPortId.open(appName, TIME_OUT);
-                        portId = currPortId;
-                        System.out.println( "Connected on port" + currPortId.getName() );
-                        break;
-                    }
-                }//end for
+            SerialPort [] AvailablePorts = SerialPort.getCommPorts();
+		
+		    System.out.println("\n\n SerialPort Data Transmission");
+
+		    // use the for loop to print the available serial ports
+		    System.out.print("\n\n Available Ports ");
+            for (int i = 0; i<AvailablePorts.length ; i++)
+            {
+                System.out.println(i + " - " + AvailablePorts[i].getSystemPortName() + " -> " + AvailablePorts[i].getDescriptivePortName());
             }
-        
-            if (portId == null || serialPort == null) {
+
+            //Open the first Available port
+            serialPort = AvailablePorts[0];
+
+            if (serialPort.openPort())
+			System.out.println(serialPort.getPortDescription() + " port opened.");
+            
+            if (serialPort == null) {
                 System.out.println("Oops... Could not connect to Arduino");
                 return false;
             }
         
             // set port parameters
-            serialPort.setSerialPortParams(DATA_RATE,
-                                SerialPort.DATABITS_8,
-                                SerialPort.STOPBITS_1,
-                                SerialPort.PARITY_NONE);
+            serialPort.setComPortParameters(DATA_RATE,
+                                8,
+                                SerialPort.ONE_STOP_BIT,
+                                SerialPort.NO_PARITY);
             
-            try {
-                 serialPort.enableReceiveTimeout(1000);
-                 serialPort.enableReceiveThreshold(0);
-            }
-            catch (UnsupportedCommOperationException e) {
-            	System.out.println("serial port enable err : " + e);
-            }
+            serialPort.setComPortTimeouts(SerialPort.TIMEOUT_READ_BLOCKING, 1000, 0);
             
             // add event listeners
-            serialPort.addEventListener(this);
-            serialPort.notifyOnDataAvailable(true);
+            serialPort.addDataListener(this);
+            //serialPort.notifyOnDataAvailable(true);
 
             // Give the Arduino some time
             try { Thread.sleep(2000); } catch (InterruptedException ie) {}
@@ -161,8 +153,8 @@ public class Arduino implements SerialPortEventListener {
     //
     public synchronized void close() {
         if ( serialPort != null ) {
-            serialPort.removeEventListener();
-            serialPort.close();
+            serialPort.removeDataListener();
+            serialPort.closePort();
         }
     }
 
@@ -173,7 +165,7 @@ public class Arduino implements SerialPortEventListener {
         //System.out.println("Event received: " + oEvent.toString());
         try {
             switch (oEvent.getEventType() ) {
-                case SerialPortEvent.DATA_AVAILABLE: 
+                case SerialPort.LISTENING_EVENT_DATA_AVAILABLE: 
                     if ( input == null ) {
                         input = new BufferedReader(  new InputStreamReader(  serialPort.getInputStream()  )  );
                     }
@@ -202,8 +194,8 @@ public class Arduino implements SerialPortEventListener {
         {
             //writeData(0, 0);
 
-            serialPort.removeEventListener();
-            serialPort.close();
+            serialPort.removeDataListener();
+            serialPort.closePort();
             input.close();
             output.close();
             setConnected(false);
@@ -213,7 +205,7 @@ public class Arduino implements SerialPortEventListener {
         }
         catch (Exception e)
         {
-            System.out.println("Failed to close " + serialPort.getName() + "(" + e.toString() + ")");
+            System.out.println("Failed to close " + serialPort.getDescriptivePortName() + "(" + e.toString() + ")");
         }
     }    
 
@@ -229,6 +221,18 @@ public class Arduino implements SerialPortEventListener {
     public static void main(String[] args)  {
     	Arduino arduinoConnect = new Arduino();
         if ( arduinoConnect.initialize() ) {
+            try{
+                while(true)
+                {
+                    double measure = arduinoConnect.getMeasure();
+                    System.out.println(measure);
+                    try { Thread.sleep(20); } catch (InterruptedException ie) {}
+                }
+            }
+        catch (ArduinoException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
             arduinoConnect.close();
         }
 
@@ -238,6 +242,3 @@ public class Arduino implements SerialPortEventListener {
     }
     
 }
-
-
-
